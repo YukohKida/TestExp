@@ -1,20 +1,362 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>My experiment</title>
-    <script src="https://unpkg.com/jspsych@7.3.2"></script>
-    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.2"></script>
-    <link href="https://unpkg.com/jspsych@7.3.2/css/jspsych.css" rel="stylesheet" type="text/css" />
-  </head>
-  <body></body>
-  <script>
-    const jsPsych = initJsPsych();
+var jsPsych = initJsPsych();
+var timeline = [];
 
-    const hello_trial = {
-      type: jsPsychHtmlKeyboardResponse,
-      stimulus: 'Hello world!'
-    }
+// informed_consent
+let informed_consent = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:30px;">'+
+   '<p><b>実験に参加頂きありがとうございます</b><p>'+
+   
+   '<p><div style='+
+   '"text-align: left ;margin-left: auto; margin-right: auto; width: 70%;'+
+   ' font-size:20px;"><br>'+
+   'この実験は<b>スマートフォンやタブレットでは実施できません</b>。'+
+   'パソコンでのみ実施していただけます。</p>'+
+   
+   '<p>ポイント獲得のための<b>コードは実験完了後に</b>表示されます。'+
+   'その為、途中でブラウザやタブを閉じた場合などは'+
+   'コードが表示されずポイントを獲得できません。'+
+   'また、実験は任意でいつでもやめることもできますが、'+
+   '参加を見合わせた場合や途中で辞退する場合も'+
+   '同様にポイントは獲得できません。</p>'+
+   
+   '<p>この実験では<b>ヘビを連想させる可能性</b>のある映像が出てきます。'+
+   'ヘビなどに過度な恐怖を感じる場合は実験参加を見合わせてください。</p>'+
+   
+   '<p>回答されたデータは個人が特定できない形で、'+
+   '研究の目的のみに利用します。</p>'+
+   
+   '<p>実験を完了するには<b>5〜15分</b>程度かかります。</p></div>'+
+   
+   '<div style="font-size:20px">'+
+   '<p>実験の参加に同意いただける場合には「次へ」を押して下さい</p>',
+  choices: ["次へ"],
+};
+timeline.push(informed_consent);
 
-    jsPsych.run([hello_trial]);
-  </script>
-</html>
+//フルスクリーン開始
+var enter_fullscreen = {
+  type: jsPsychFullscreen,
+  message: '<div style="font-size:30px;">'+
+   '<b>フルスクリーンモードに移行します</b>'+
+   
+   '<p><div style="font-size:20px;"><br>'+
+   '実験は全画面表示で実施していただきます。'+
+   'ボタンを押すと全画面表示が開始します。</p>'+
+   
+   '<p>実験を中断する場合は、ESCキーを押して全画面表示を終了し'+
+   'サイトを閉じてください。</p><br>'+
+   
+   '<p>実験中はESCキーを押さないでください。</p>',
+  fullscreen_mode: true,
+  button_label:'フルスクリーンを開始',
+}
+timeline.push(enter_fullscreen);
+
+// jsPsychによるスライダー回答画面プラグイン
+var TestAns = {
+  type: jsPsychHtmlSliderResponse,
+  prompt: function() {
+            // Get the current trial index from jsPsych data
+            var test_trial_index = jsPsych.data.get().count();
+            return '<br><p>' + (test_trial_index-2) + '/' +
+            TestTrial.timeline_variables.length + ' 回目の回答</p>';
+        },
+  stimulus:'<div><div id="p5-canvas"></div>'+
+  '<p>物体の動きに対して、'+
+  '<b>どのくらい生き物らしいと感じるか</b>'+
+  'を回答してください。</p>'+
+  '<div margin-bottom＝"1px";>'+
+  '・全く生き物らしく感じなければ 0<br>'+
+  '・本物の生き物の様に感じれば 100<br>'+
+  'としてスライダーを動かして回答してください。'+
+  '</div><br>'+
+  // 初期値50を設定'
+  '<div id="slider-value-display" style="text-align: center; '+
+  'margin-bottom: 10px;"><b>50</b></div>',
+  require_movement: true,
+  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
+    '|<br>とても<br>生き物らしく<br>感じる'],
+  button_label:'次へ',
+  data: {
+    noise: jsPsych.timelineVariable('noise'),
+    test_data: 1,
+  },
+  on_load: function() {
+    new p5();
+
+    // スライダーの値を表示する要素
+    var displayElement = document.getElementById('slider-value-display');
+    
+    // スライダーの値を表示
+    var slider = document.querySelector('input[type="range"]');
+    slider.addEventListener('input', function() {
+      displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+    });
+
+    // 初期値を表示
+    displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+  }
+};
+// 練習セクションの説明
+let exprein_test_experiment = {
+  type: jsPsychHtmlButtonResponse,
+  
+  stimulus: '<div style="font-size:30px;">'+
+  '<b>課題の説明</b>'+
+  
+  '<div style='+
+  '"text-align: left ; font-size:20px;"><br>'+
+  '<p>これから動画の印象を評価する実験に参加していただきます。<br>'+
+  'この実験は物体の動きに対して生き物らしさを感じてしまうという現象の'+
+  '解明を目的としたものです。</p>'+
+   
+  '<p>実験では画面に表示されている動画の中で'+
+  '<span style="color: red; font-weight: bold">'+
+  '動いている物体に対して、どのくらい生き物らしいと感じるか</span>'+
+  'を評価してもらいます。</p>'+
+   
+  '<p><b>動画の下のスライダー</b>により、'+
+  'どのくらい生き物らしいと感じるかを回答してもらいます。</p>'+
+   
+  '<p>この回答を練習は4回、'+
+  '本番では36回答を2セットの計72回繰り返してもらいます。</p></div>'+
+   
+  '<div style="font-size:20px;"><br>'+
+  '<p>まず、実験の練習をしてもらいます。<br>'+
+  '準備ができたらボタンを押して練習を開始してください。</p>',
+  choices: ["練習を開始"],
+};
+timeline.push(exprein_test_experiment);
+// 練習セクションのフロー作成
+var TestTrial = {
+    timeline: [TestAns],
+    timeline_variables: [...Array(4).keys()].map((d) => {
+        return { noise: d };}),
+    repetitions: 1,
+    randomize_order: true,
+};
+timeline.push(TestTrial);
+
+
+// 本番実験セクションの説明
+let exprein_experiment = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:30px;">'+
+  '<p><b>本番を開始します</b></p>'+
+   
+  '<p><div style="font-size:20px;"><br>'+
+  '先ほどの手順で本番の実験を行ってもらいます。<br>'+
+  '本番は2回に分けて行われ、間には休憩が取れます。</p>'+
+   
+  '<p>本番は36回づつ計72回あります。</p><br>'+
+   
+  '<p>お好きなタイミングでボタンを押して実験を開始してください</p>',
+  choices: ["最初の実験を開始"],
+};
+timeline.push(exprein_experiment);
+
+// jsPsychによるスライダー回答画面プラグイン
+var ans_1 = {
+  type: jsPsychHtmlSliderResponse,
+  prompt: function() {
+            // Get the current trial index from jsPsych data
+            var trial_index = jsPsych.data.get().count();
+            return '<br><p>' + (trial_index-7) +
+            '/36 回目の回答</p>';
+        },
+  stimulus:'<div><div id="p5-canvas"></div>'+
+  '<p>物体の動きに対して、'+
+  '<b>どのくらい生き物らしいと感じるか</b>'+
+  'を回答してください。</p>'+
+  '<div margin-bottom＝"1px";>'+
+  '・全く生き物らしく感じなければ 0<br>'+
+  '・本物の生き物の様に感じれば 100<br>'+
+  'としてスライダーを動かして回答してください。'+
+  '</div><br>'+
+  // 初期値50を設定'
+  '<div id="slider-value-display" style="text-align: center; '+
+  'margin-bottom: 10px;"><b>50</b></div>',
+  require_movement: true,
+  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
+    '|<br>とても<br>生き物らしく<br>感じる'],
+  button_label:'次へ',
+  
+  data: {
+    noise: jsPsych.timelineVariable('noise'),
+    experiment_data: 1,
+  },
+  on_load: function() {
+    new p5();
+
+    // スライダーの値を表示する要素
+    var displayElement = document.getElementById('slider-value-display');
+    
+    // スライダーの値を表示
+    var slider = document.querySelector('input[type="range"]');
+    slider.addEventListener('input', function() {
+      displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+    });
+
+    // 初期値を表示
+    displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+  },
+};
+//　本番実験セクションのフロー作成
+var trial_1 = {
+    timeline: [ans_1],
+    timeline_variables: [...Array(4).keys()].map((d) => {
+        return { noise: d };}),
+    repetitions: 9,
+    randomize_order: true,
+};
+timeline.push(trial_1);
+
+//実験の 1/2 終了通達
+let take_a_break_1 = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:34px;">'+
+  '<p><b>一旦休憩です</b></p>'+
+   
+  '<p><div style="font-size:20px;"><br/>'+
+  '実験の半分が終了です、お疲れ様でした。<br>'+
+  'もう1度同じ実験をしていただきます。</p><br>'+
+   
+  '<p>お好きなタイミングでボタンを押して実験を開始してください</p>',
+  choices: ["最後の実験を開始"]
+};
+timeline.push(take_a_break_1);
+
+//　実験セクションPart2
+// jsPsychによるスライダー回答画面プラグイン
+var ans_2 = {
+  type: jsPsychHtmlSliderResponse,
+  prompt: function() {
+            // Get the current trial index from jsPsych data
+            var trial_index = jsPsych.data.get().count();
+            return '<br><p>' + (trial_index-44) +
+            '/36 回目の回答</p>';
+        },
+  stimulus:'<div><div id="p5-canvas"></div>'+
+  '<p>物体の動きに対して、'+
+  '<b>どのくらい生き物らしいと感じるか</b>'+
+  'を回答してください。</p>'+
+  '<div margin-bottom＝"1px";>'+
+  '・全く生き物らしく感じなければ 0<br>'+
+  '・本物の生き物の様に感じれば 100<br>'+
+  'としてスライダーを動かして回答してください。'+
+  '</div><br>'+
+  // 初期値50を設定'
+  '<div id="slider-value-display" style="text-align: center; '+
+  'margin-bottom: 10px;"><b>50</b></div>',
+  require_movement: true,
+  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
+    '|<br>とても<br>生き物らしく<br>感じる'],
+  button_label:'次へ',
+  
+  data: {
+    noise: jsPsych.timelineVariable('noise'),
+    experiment_data: 2,
+  },
+  on_load: function() {
+    new p5();
+
+    // スライダーの値を表示する要素
+    var displayElement = document.getElementById('slider-value-display');
+    
+    // スライダーの値を表示
+    var slider = document.querySelector('input[type="range"]');
+    slider.addEventListener('input', function() {
+      displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+    });
+
+    // 初期値を表示
+    displayElement.innerHTML = '<b>' + slider.value +
+      '</b>';
+  },
+};
+//　本番実験セクションのフロー作成
+var trial_2 = {
+    timeline: [ans_2],
+    timeline_variables: [...Array(4).keys()].map((d) => {
+        return { noise: d };}),
+    repetitions: 9,
+    randomize_order: true,
+};
+timeline.push(trial_2);
+
+//実験終了通達
+let trial_is_finish = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:34px;">'+
+  '<p><b>お疲れ様です、実験は終わりです</b></p>'+
+   
+  '<p><div style="font-size:20px;"><br>'+
+  '「次へ」を押すと任意のアンケートが 2 つ、<br>'+
+  'その後にパスコードが表示されます。</p>',
+  choices: ["次へ"]
+};
+timeline.push(trial_is_finish);
+
+// アンケート
+var survey1 = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:34px;">'+
+  '<p>【任意】ご性別をお聞かせください</p><br><br>',
+  choices: ['女性', '男性', 'その他'],
+  data: {
+    survey_data: 1,
+  },
+};
+timeline.push(survey1);
+var survey2 = {
+  type: jsPsychSurveyText,
+  questions: [
+    { prompt: '<div style="font-size:34px;">'+
+  '<p>【任意】ご年齢をお聞かせください</p>',
+  placeholder: '半角英数字でお答えください'}
+  ],
+  button_label: '次へ',
+  data: {
+    survey_data: 1,
+  },
+};
+timeline.push(survey2);
+
+// パスコード表示
+var end_experiment = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: '<div style="font-size:34px;">'+
+   '<p><b>パスコードをメモしてください</b></p><br>'+
+   
+   '<p><div style="font-size:20px;">'+
+   '参加ありがとうございました。<br>'+
+   'パスコードはこちらです</p>'+
+   '<span style="color: red; font-weight: bold; font-size:30px;">'+
+   '1340</span><br>'+
+   
+   '<br><p>パスコードは必ずメモをし、募集元のサイトに戻ってください。<br>'+
+   'パスコードを記録したら、下の終了ボタンをクリックして実験を終了してください。</p>'+
+   '<p>白紙のページが表示されたら、'+
+   'このサイトは閉じて問題ありません。</p>'+
+   
+   '<p>お疲れ様でした</p>',
+   choices: ["実験を終了する"]
+};
+timeline.push(end_experiment);
+
+//フルスクリーン終了
+var exit_fullscreen = {
+  type: jsPsychFullscreen,
+  fullscreen_mode: false,
+  delay_after: 0
+}
+timeline.push(exit_fullscreen);
+
+//jspsychを実行
+jsPsych.run(timeline);
