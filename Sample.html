@@ -28,374 +28,683 @@
 
 <body></body>
 <script>
-    // const jsPsych = initJsPsych();
-    const jsPsych = initJsPsych({
-        on_trial_start: function () {
-            window.scrollTo(0, 0);
-        }
-    });
-var timeline = [];
+    /* * -----------------------------------------------------------
+ * 1. 初期設定 & p5.js Sketch (刺激提示専用)
+ * -----------------------------------------------------------
+ */
+const jsPsych = initJsPsych({
+    on_finish: function() {
+        jsPsych.data.get().localSave('csv', 'experiment_data.csv');
+    }
+});
 
-// informed_consent
-let informed_consent = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:30px;">'+
-   '<p><b>実験に参加頂きありがとうございます</b><p>'+
-   
-   '<p><div style='+
-   '"text-align: left ;margin-left: auto; margin-right: auto; width: 70%;'+
-   ' font-size:20px;"><br>'+
-   'この実験は<b>スマートフォンやタブレットでは実施できません</b>。'+
-   'パソコンでのみ実施していただけます。</p>'+
-   
-   '<p>ポイント獲得のための<b>コードは実験完了後に</b>表示されます。'+
-   'その為、途中でブラウザやタブを閉じた場合などは'+
-   'コードが表示されずポイントを獲得できません。'+
-   'また、実験は任意でいつでもやめることもできますが、'+
-   '参加を見合わせた場合や途中で辞退する場合も'+
-   '同様にポイントは獲得できません。</p>'+
-   
-   '<p>この実験では<b>ヘビを連想させる可能性</b>のある映像が出てきます。'+
-   'ヘビなどに過度な恐怖を感じる場合は実験参加を見合わせてください。</p>'+
-   
-   '<p>回答されたデータは個人が特定できない形で、'+
-   '研究の目的のみに利用します。</p>'+
-   
-   '<p>実験を完了するには<b>5〜15分</b>程度かかります。</p></div>'+
-   
-   '<div style="font-size:20px">'+
-   '<p>実験の参加に同意いただける場合には「次へ」を押して下さい</p>',
-  choices: ["次へ"],
+// 背景設定
+document.body.style.backgroundColor = "rgb(128, 128, 128)";
+document.body.style.color = "black";
+
+const timeline = [];
+let main_trial_counter = 1;
+let block_trial_counter = 1;
+let current_block_index = 0;
+
+// --- 共通定数 ---
+const COLORS = { background: 128, stimulus: 0 };
+const canvasWidth = 900;
+const canvasHeight = 600;
+const waveYOffset = 115;
+
+// ノイズコード(0-3) → px実値 の変換表
+const NOISE_CODE_TO_PX = { 0: 0, 1: 48, 2: 96, 3: 144 };
+
+// --- 画面環境情報の取得(実験開始時に一度だけ記録) ---
+const ENV_INFO = {
+    screen_width: window.screen ? window.screen.width : null,
+    screen_height: window.screen ? window.screen.height : null,
+    window_inner_width: window.innerWidth,
+    window_inner_height: window.innerHeight,
+    device_pixel_ratio: window.devicePixelRatio || 1
+};
+
+// --- Wave Class (共通で使用) ---
+function createWaveClass(p) {
+    return class SingleWave {
+        constructor(noiseCondition) {
+            this.yvalues = new Array(p.floor(350 / 32));
+            this.ydev = new Array(this.yvalues.length);
+            this.positionsync = 0;
+            switch (noiseCondition) {
+                case 0: this.positionsync = 0; break;
+                case 1: this.positionsync = 48; break;
+                case 2: this.positionsync = 96; break;
+                case 3: this.positionsync = 144; break;
+                default: this.positionsync = 0;
+            }
+            this.calcRand();
+        }
+        calcRand() {
+            for (let x = 0; x < this.ydev.length; x++) {
+                this.ydev[x] = p.random() * this.positionsync - this.positionsync / 2;
+            }
+        }
+        update(baseTheta) {
+            let x = baseTheta;
+            for (let i = 0; i < this.yvalues.length; i++) {
+                this.yvalues[i] = p.sin(x) * 32 + this.ydev[i];
+                x += (p.TWO_PI / 250) * 32;
+            }
+        }
+        display() {
+            let drawStartOffset = -((this.yvalues.length - 1) * 32) / 2;
+            p.stroke(COLORS.stimulus); p.strokeWeight(2); p.noFill();
+            p.beginShape();
+            for (let x = 0; x < this.yvalues.length; x++) {
+                p.vertex(x * 32 + drawStartOffset, this.yvalues[x]);
+            }
+            p.endShape();
+            p.noStroke(); p.fill(COLORS.stimulus);
+            for (let x = 0; x < this.yvalues.length; x++) {
+                p.ellipse(x * 32 + drawStartOffset, this.yvalues[x], 16, 16);
+            }
+        }
+    };
+}
+
+// --- p5.js Sketch: 単刺激モード (練習Step1用) ---
+const singleStimulusSketch = (noiseLevel, onFinish) => (p) => {
+    let state = 'fixation';
+    let stateStartTime = 0;
+    let nw0;
+    let wave;
+    let phaseOffset = 0;
+    let WaveClass;
+
+    p.setup = () => {
+        let c = p.createCanvas(canvasWidth, canvasHeight);
+        c.style('display', 'block');
+        c.style('margin', 'auto');
+        p.textAlign(p.CENTER, p.CENTER);
+        p.imageMode(p.CENTER);
+        p.noCursor();
+
+        WaveClass = createWaveClass(p);
+        nw0 = p.millis();
+        wave = new WaveClass(noiseLevel);
+        phaseOffset = p.random(p.TWO_PI);
+        stateStartTime = p.millis();
+    };
+
+    p.draw = () => {
+        p.background(COLORS.background);
+        let elapsed = p.millis() - stateStartTime;
+
+        if (state === 'fixation') {
+            drawFixation();
+            if (elapsed > 1000) nextState('stimulus');
+        }
+        else if (state === 'stimulus') {
+            drawSingleWave();
+            if (elapsed > 2000) {
+                p.noLoop();
+                onFinish();
+            }
+        }
+    };
+
+    function nextState(newState) {
+        state = newState;
+        stateStartTime = p.millis();
+    }
+
+    function drawFixation() {
+        p.stroke(COLORS.stimulus); p.strokeWeight(2);
+        let cx = p.width / 2;
+        let cy = p.height / 2;
+        let len = 15;
+        p.line(cx - len, cy, cx + len, cy);
+        p.line(cx, cy - len, cx, cy + len);
+    }
+
+    function drawSingleWave() {
+        let localNw = p.millis() - nw0;
+        let baseTheta = p.PI * localNw / 1000 * 2;
+
+        p.push();
+        p.translate(p.width / 2, p.height / 2); // 画面中央に表示
+        wave.update(baseTheta + phaseOffset);
+        wave.display();
+        p.pop();
+    }
+};
+
+// --- p5.js Sketch: 2刺激モード (練習Step2 & 本番用) ---
+// 位相関係: phaseOffsetDown = phaseOffsetUp + PI (上下刺激は逆位相で提示)
+const dualStimulusSketch = (target_side, noiseUp, noiseDown, onFinish) => (p) => {
+    let state = 'fixation';
+    let stateStartTime = 0;
+    let nw0;
+    let upWave, downWave;
+    let phaseOffsetUp = 0;
+    let phaseOffsetDown = 0;
+    let WaveClass;
+
+    p.setup = () => {
+        let c = p.createCanvas(canvasWidth, canvasHeight);
+        c.style('display', 'block');
+        c.style('margin', 'auto');
+        p.textAlign(p.CENTER, p.CENTER);
+        p.imageMode(p.CENTER);
+        p.noCursor();
+
+        WaveClass = createWaveClass(p);
+        nw0 = p.millis();
+        upWave = new WaveClass(noiseUp);
+        downWave = new WaveClass(noiseDown);
+
+        phaseOffsetUp = p.random(p.TWO_PI);
+        phaseOffsetDown = phaseOffsetUp + p.PI; // 逆位相
+
+        stateStartTime = p.millis();
+    };
+
+    p.draw = () => {
+        p.background(COLORS.background);
+        let elapsed = p.millis() - stateStartTime;
+
+        if (state === 'fixation') {
+            drawFixation();
+            if (elapsed > 1000) nextState('cue');
+        }
+        else if (state === 'cue') {
+            drawCue();
+            if (elapsed > 1000) nextState('stimulus');
+        }
+        else if (state === 'stimulus') {
+            drawWaves();
+            if (elapsed > 2000) {
+                p.noLoop();
+                onFinish();
+            }
+        }
+    };
+
+    function nextState(newState) {
+        state = newState;
+        stateStartTime = p.millis();
+    }
+
+    function drawFixation() {
+        p.stroke(COLORS.stimulus); p.strokeWeight(2);
+        let cx = p.width / 2;
+        let cy = p.height / 2;
+        let len = 15;
+        p.line(cx - len, cy, cx + len, cy);
+        p.line(cx, cy - len, cx, cy + len);
+    }
+
+    function drawCue() {
+        let arrow = target_side === 'up' ? '↑' : '↓';
+        p.noStroke();
+        p.fill(COLORS.stimulus);
+        p.textSize(60);
+        p.textStyle(p.BOLD);
+        p.text(arrow, p.width / 2, p.height / 2);
+        p.textStyle(p.NORMAL);
+    }
+
+    function drawWaves() {
+        let localNw = p.millis() - nw0;
+        let baseTheta = p.PI * localNw / 1000 * 2;
+
+        // 上の波
+        p.push();
+        p.translate(p.width / 2, p.height / 2 - waveYOffset);
+        upWave.update(baseTheta + phaseOffsetUp);
+        upWave.display();
+        p.pop();
+
+        // 下の波 (phaseOffsetDown = phaseOffsetUp + PI)
+        p.push();
+        p.translate(p.width / 2, p.height / 2 + waveYOffset);
+        downWave.update(baseTheta + phaseOffsetDown);
+        downWave.display();
+        p.pop();
+    }
+};
+
+
+/* * -----------------------------------------------------------
+ * 2. 試行生成関数
+ * -----------------------------------------------------------
+ */
+
+// 共通: 環境情報を on_finish 内で data にマージ
+function attachEnvInfo(data) {
+    data.screen_width = ENV_INFO.screen_width;
+    data.screen_height = ENV_INFO.screen_height;
+    data.window_inner_width = ENV_INFO.window_inner_width;
+    data.window_inner_height = ENV_INFO.window_inner_height;
+    data.device_pixel_ratio = ENV_INFO.device_pixel_ratio;
+}
+
+// 練習Step1用: 単刺激 → 評価
+function createSingleTrialBlock(noiseLevel, trialIndex) {
+    const stimulus_trial = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: '<div id="p5-canvas-container"></div>',
+        choices: "NO_KEYS",
+        on_load: function() {
+            const handleFinish = () => { jsPsych.finishTrial(); };
+            if (window.currP5) { window.currP5.remove(); window.currP5 = null; }
+            window.currP5 = new p5(
+                singleStimulusSketch(noiseLevel, handleFinish),
+                'p5-canvas-container'
+            );
+        },
+        on_finish: function() {
+            if (window.currP5) { window.currP5.remove(); window.currP5 = null; }
+        }
+    };
+
+    // 回答画面: タイムスタンプ記録(response_start_time, response_end_time, response_duration_ms)
+    let response_start_time = null;
+
+    const response_trial = {
+        type: jsPsychHtmlSliderResponse,
+        stimulus: `
+            <p style="font-size: 14px; color: #999; margin-bottom: 10px;">練習ステップ1: ${trialIndex} / 4 回目</p>
+            <div style="margin-bottom: 20px;">
+                <p style="font-weight: bold; font-size: 24px;">物体の「生き物らしさ」</p>
+                <p>スライダーを動かして評価してください</p>
+            </div>
+        `,
+        labels: ['全く感じない (0)', 'とても感じる (100)'],
+        min: 0, max: 100, start: 50, step: 1,
+        button_label: '決定',
+        require_movement: true,
+        on_start: function() {
+            response_start_time = performance.now();
+        },
+        on_finish: function(data) {
+            const response_end_time = performance.now();
+            data.response_start_time = response_start_time;
+            data.response_end_time = response_end_time;
+            data.response_duration_ms = response_end_time - response_start_time;
+            data.response_rt = data.rt;
+
+            data.phase = 'practice_step1';
+            data.target_side = 'center';
+            data.noise_level = noiseLevel;
+            data.noise_level_px = NOISE_CODE_TO_PX[noiseLevel];
+            data.trial_count = null;
+            data.block_index = null;
+            data.block_trial_index = null;
+
+            attachEnvInfo(data);
+        }
+    };
+
+    return { timeline: [stimulus_trial, response_trial] };
+}
+
+// 練習Step2 & 本番用: 2刺激 → 評価
+function createDualTrialBlock(target_side, noise_up, noise_down, phase, counterLabel, block_index_arg) {
+    const stimulus_trial = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: '<div id="p5-canvas-container"></div>',
+        choices: "NO_KEYS",
+        on_load: function() {
+            const handleFinish = () => { jsPsych.finishTrial(); };
+            if (window.currP5) { window.currP5.remove(); window.currP5 = null; }
+            window.currP5 = new p5(
+                dualStimulusSketch(target_side, noise_up, noise_down, handleFinish),
+                'p5-canvas-container'
+            );
+        },
+        on_finish: function() {
+            if (window.currP5) { window.currP5.remove(); window.currP5 = null; }
+        }
+    };
+
+    const label_text = target_side === 'up' ? "上 (↑)" : "下 (↓)";
+
+    // 回答画面: タイムスタンプ記録
+    let response_start_time = null;
+
+    const response_trial = {
+        type: jsPsychHtmlSliderResponse,
+        stimulus: `
+            <p style="font-size: 14px; color: #999; margin-bottom: 10px;">${counterLabel}</p>
+            <div style="margin-bottom: 20px;">
+                <p style="font-weight: bold; font-size: 24px;">${label_text} の物体の「生き物らしさ」</p>
+                <p>スライダーを動かして評価してください</p>
+            </div>
+        `,
+        labels: ['全く感じない (0)', 'とても感じる (100)'],
+        min: 0, max: 100, start: 50, step: 1,
+        button_label: '決定',
+        require_movement: true,
+        on_start: function() {
+            response_start_time = performance.now();
+        },
+        on_finish: function(data) {
+            const response_end_time = performance.now();
+            data.response_start_time = response_start_time;
+            data.response_end_time = response_end_time;
+            data.response_duration_ms = response_end_time - response_start_time;
+            data.response_rt = data.rt;
+
+            data.phase = phase;
+            data.target_side = target_side;
+
+            // ノイズ条件(コード値とpx実値の両方を保存)
+            data.noise_up = noise_up;
+            data.noise_down = noise_down;
+            data.noise_target = target_side === 'up' ? noise_up : noise_down;
+            data.noise_up_px = NOISE_CODE_TO_PX[noise_up];
+            data.noise_down_px = NOISE_CODE_TO_PX[noise_down];
+            data.noise_target_px = target_side === 'up' ? NOISE_CODE_TO_PX[noise_up] : NOISE_CODE_TO_PX[noise_down];
+
+            // 試行識別情報
+            if (phase === 'main') {
+                data.trial_count = main_trial_counter;
+                data.block_index = block_index_arg;
+                data.block_trial_index = block_trial_counter;
+                main_trial_counter++;
+                block_trial_counter++;
+            } else {
+                data.trial_count = null;
+                data.block_index = null;
+                data.block_trial_index = null;
+            }
+
+            attachEnvInfo(data);
+        }
+    };
+
+    return { timeline: [stimulus_trial, response_trial] };
+}
+
+
+/* * -----------------------------------------------------------
+ * 3. タイムライン構築
+ * -----------------------------------------------------------
+ */
+
+// ===== インフォームド・コンセント =====
+const informed_consent = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size:30px;">
+            <p><b>実験に参加頂きありがとうございます</b></p>
+        </div>
+        <div style="text-align: left; margin: 0 auto; width: 70%; font-size: 20px;">
+            <p>この実験は<b>スマートフォンやタブレットでは実施できません</b>。
+            パソコンでのみ実施していただけます。</p>
+
+            <p>ポイント獲得のための<b>コードは実験完了後に</b>表示されます。
+            その為、途中でブラウザやタブを閉じた場合などは
+            コードが表示されずポイントを獲得できません。
+            また、実験は任意でいつでもやめることもできますが、
+            参加を見合わせた場合や途中で辞退する場合も
+            同様にポイントは獲得できません。</p>
+
+            <p>この実験では<b>ヘビを連想させる可能性</b>のある映像が出てきます。
+            ヘビなどに過度な恐怖を感じる場合は実験参加を見合わせてください。</p>
+
+            <p>回答されたデータは個人が特定できない形で、
+            研究の目的のみに利用します。</p>
+
+            <p>実験を完了するには<b>15〜25分</b>程度かかります。</p>
+        </div>
+        <div style="font-size: 20px;">
+            <p>実験の参加に同意いただける場合には「次へ」を押して下さい</p>
+        </div>
+    `,
+    choices: ["同意して次へ"],
 };
 timeline.push(informed_consent);
 
-//フルスクリーン開始
-var enter_fullscreen = {
-  type: jsPsychFullscreen,
-  message: '<div style="font-size:30px;">'+
-   '<b>フルスクリーンモードに移行します</b>'+
-   
-   '<p><div style="font-size:20px;"><br>'+
-   '実験は全画面表示で実施していただきます。'+
-   'ボタンを押すと全画面表示が開始します。</p>'+
-   
-   '<p>実験を中断する場合は、ESCキーを押して全画面表示を終了し'+
-   'サイトを閉じてください。</p><br>'+
-   
-   '<p>実験中はESCキーを押さないでください。</p>',
-  fullscreen_mode: true,
-  button_label:'フルスクリーンを開始',
-}
+// ===== フルスクリーン =====
+const enter_fullscreen = {
+    type: jsPsychFullscreen,
+    message: '<p>フルスクリーンモードで実験を開始します。</p>',
+    fullscreen_mode: true,
+    button_label: '開始',
+};
 timeline.push(enter_fullscreen);
 
-// jsPsychによるスライダー回答画面プラグイン
-var TestAns = {
-  type: jsPsychHtmlSliderResponse,
-  prompt: function() {
-            // Get the current trial index from jsPsych data
-            var test_trial_index = jsPsych.data.get().count();
-            return '<br><p>' + (test_trial_index-2) + '/' +
-            TestTrial.timeline_variables.length + ' 回目の回答</p>';
-        },
-  stimulus:'<div><div id="p5-canvas"></div>'+
-  '<p>物体の動きに対して、'+
-  '<b>どのくらい生き物らしいと感じるか</b>'+
-  'を回答してください。</p>'+
-  '<div margin-bottom＝"1px";>'+
-  '・全く生き物らしく感じなければ 0<br>'+
-  '・本物の生き物の様に感じれば 100<br>'+
-  'としてスライダーを動かして回答してください。'+
-  '</div><br>'+
-  // 初期値50を設定'
-  '<div id="slider-value-display" style="text-align: center; '+
-  'margin-bottom: 10px;"><b>50</b></div>',
-  require_movement: true,
-  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
-    '|<br>とても<br>生き物らしく<br>感じる'],
-  button_label:'次へ',
-  data: {
-    noise: jsPsych.timelineVariable('noise'),
-    test_data: 1,
-  },
-  on_load: function() {
-    new p5();
+// ===== 全体の流れ説明 =====
+const overview_instruction = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 28px;"><b>実験の全体の流れ</b></div>
+        <div style="text-align: left; width: 70%; margin: 20px auto; font-size: 20px;">
+            <p>この実験では、画面に表示される<b>短い動画を見て、その物体がどのくらい「生き物らしい」と感じたかを評価</b>していただきます。</p>
 
-    // スライダーの値を表示する要素
-    var displayElement = document.getElementById('slider-value-display');
-    
-    // スライダーの値を表示
-    var slider = document.querySelector('input[type="range"]');
-    slider.addEventListener('input', function() {
-      displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
+            <p>実験は以下の順番で進みます：</p>
+
+            <p>
+            <b>① 練習(ステップ1)</b>: まず動画と評価の方法に慣れていただきます。<br>
+            <b>② 練習(ステップ2)</b>: 本番と同じ形式で練習します。<br>
+            <b>③ 本番(3セット)</b>: 本番の評価課題を行います。セット間に休憩があります。<br>
+            <b>④ アンケート</b>: 簡単な質問にお答えいただきます。<br>
+            <b>⑤ コード表示</b>: ポイント獲得用のコードが表示されます。
+            </p>
+        </div>
+    `,
+    choices: ["次へ"],
+};
+timeline.push(overview_instruction);
+
+
+// ---------------------------------------------------------
+// 練習ステップ1: 単刺激で評価に慣れる
+// ---------------------------------------------------------
+const practice_step1_instruction = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 28px;"><b>練習ステップ1: 動画と評価に慣れましょう</b></div>
+        <div style="text-align: left; width: 70%; margin: 20px auto; font-size: 20px;">
+            <p>まずは動画を見ることと、評価の操作に慣れていただきます。</p>
+
+            <p><b>【流れ】</b><br>
+            1. 画面中央に「＋」マークが表示されます。<br>
+            2. 次に、動く物体が画面中央に1つ表示されます。<br>
+            3. 動画が終わると、その物体が<b>「どのくらい生き物らしいと感じたか」</b>をスライダーで評価していただきます。</p>
+
+            <p>全部で4回行います。</p>
+        </div>
+    `,
+    choices: ["練習ステップ1を開始"],
+};
+timeline.push(practice_step1_instruction);
+
+// 練習Step1: ノイズレベル0~3を各1回、ランダム順(計4試行)
+const step1_noise_levels = jsPsych.randomization.shuffle([0, 1, 2, 3]);
+step1_noise_levels.forEach(function(noise, idx) {
+    timeline.push(createSingleTrialBlock(noise, idx + 1));
+});
+
+// ---------------------------------------------------------
+// 練習ステップ2: 2刺激 + 矢印指示で本番形式に慣れる
+// ---------------------------------------------------------
+const practice_step2_instruction = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 28px;"><b>練習ステップ2: 本番と同じ形式で練習しましょう</b></div>
+        <div style="text-align: left; width: 70%; margin: 20px auto; font-size: 20px;">
+            <p>ここからは本番と同じ形式で練習します。</p>
+
+            <p><b>【変更点】</b><br>
+            ・動く物体が<b>上下に2つ同時に</b>表示されるようになります。<br>
+            ・動画の前に<b>矢印(↑ または ↓)</b>が表示されます。<br>
+            　これは「どちらの物体に注目してほしいか」を示す指示です。</p>
+
+            <p><b>【流れ】</b><br>
+            1. 画面中央に「＋」マークが表示されます。<br>
+            2. 次に<b>矢印</b>が表示されます。これが注目する方向です。<br>
+            3. 上下に2つの物体が表示されます。<br>
+            4. 動画が終わると、<b>矢印で指示された方向の物体</b>について、
+            　「どのくらい生き物らしいと感じたか」を評価してください。<br>
+            　もう一方の物体は評価しなくて構いません。</p>
+
+            <p>全部で4回行います。</p>
+        </div>
+    `,
+    choices: ["練習ステップ2を開始"],
+};
+timeline.push(practice_step2_instruction);
+
+// 練習Step2: 全要因からランダムに4試行
+const factors = {
+    target_side: ['up', 'down'],
+    noise_up: [0, 1, 2, 3],
+    noise_down: [0, 1, 2, 3]
+};
+const full_factors = jsPsych.randomization.factorial(factors, 1);
+const practice_step2_samples = jsPsych.randomization.sampleWithoutReplacement(full_factors, 4);
+let step2_counter = 1;
+practice_step2_samples.forEach(function(param) {
+    const label = `練習ステップ2: ${step2_counter} / 4 回目`;
+    timeline.push(createDualTrialBlock(param.target_side, param.noise_up, param.noise_down, 'practice_step2', label, null));
+    step2_counter++;
+});
+
+
+// ---------------------------------------------------------
+// 本番セクション
+// 1セッション64試行(32条件 × 2反復) × 3セッション = 192試行
+// ---------------------------------------------------------
+timeline.push({
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 28px;"><b>本番を開始します</b></div>
+        <div style="width: 70%; margin: 20px auto; font-size: 20px;">
+            <p>練習は以上です。お疲れ様でした。</p>
+            <p>ここからは本番です。やることは練習ステップ2と同じです。<br>
+            矢印で指示された方向の物体について「生き物らしさ」を評価してください。</p>
+            <p>本番は<b>3セット</b>あります。各セット64試行で、セットの間に休憩があります。</p>
+        </div>
+    `,
+    choices: ["最初のセットを開始"],
+    on_finish: function() {
+        main_trial_counter = 1;
+        current_block_index = 0;
+    }
+});
+
+const NUM_BLOCKS = 3;
+const REPS_PER_BLOCK = 2;  // 32条件 × 2反復 = 64試行/ブロック
+
+for (let block = 0; block < NUM_BLOCKS; block++) {
+    const block_index_for_this_block = block + 1;
+
+    // ブロック開始時にカウンタをリセット
+    timeline.push({
+        type: jsPsychCallFunction,
+        func: function() {
+            block_trial_counter = 1;
+            current_block_index = block_index_for_this_block;
+        }
     });
 
-    // 初期値を表示
-    displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
-  }
-};
-// 練習セクションの説明
-let exprein_test_experiment = {
-  type: jsPsychHtmlButtonResponse,
-  
-  stimulus: '<div style="font-size:30px;">'+
-  '<b>課題の説明</b>'+
-  
-  '<div style='+
-  '"text-align: left ; font-size:20px;"><br>'+
-  '<p>これから動画の印象を評価する実験に参加していただきます。<br>'+
-  'この実験は物体の動きに対して生き物らしさを感じてしまうという現象の'+
-  '解明を目的としたものです。</p>'+
-   
-  '<p>実験では画面に表示されている動画の中で'+
-  '<span style="color: red; font-weight: bold">'+
-  '動いている物体に対して、どのくらい生き物らしいと感じるか</span>'+
-  'を評価してもらいます。</p>'+
-   
-  '<p><b>動画の下のスライダー</b>により、'+
-  'どのくらい生き物らしいと感じるかを回答してもらいます。</p>'+
-   
-  '<p>この回答を練習は4回、'+
-  '本番では36回答を2セットの計72回繰り返してもらいます。</p></div>'+
-   
-  '<div style="font-size:20px;"><br>'+
-  '<p>まず、実験の練習をしてもらいます。<br>'+
-  '準備ができたらボタンを押して練習を開始してください。</p>',
-  choices: ["練習を開始"],
-};
-timeline.push(exprein_test_experiment);
-// 練習セクションのフロー作成
-var TestTrial = {
-    timeline: [TestAns],
-    timeline_variables: [...Array(4).keys()].map((d) => {
-        return { noise: d };}),
-    repetitions: 1,
-    randomize_order: true,
-};
-timeline.push(TestTrial);
+    // 32条件 × 2反復 = 64試行
+    const block_trials = jsPsych.randomization.factorial(factors, REPS_PER_BLOCK);
+    const total_in_block = block_trials.length;
+    let display_counter = 1;
 
-
-// 本番実験セクションの説明
-let exprein_experiment = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:30px;">'+
-  '<p><b>本番を開始します</b></p>'+
-   
-  '<p><div style="font-size:20px;"><br>'+
-  '先ほどの手順で本番の実験を行ってもらいます。<br>'+
-  '本番は2回に分けて行われ、間には休憩が取れます。</p>'+
-   
-  '<p>本番は36回づつ計72回あります。</p><br>'+
-   
-  '<p>お好きなタイミングでボタンを押して実験を開始してください</p>',
-  choices: ["最初の実験を開始"],
-};
-timeline.push(exprein_experiment);
-
-// jsPsychによるスライダー回答画面プラグイン
-var ans_1 = {
-  type: jsPsychHtmlSliderResponse,
-  prompt: function() {
-            // Get the current trial index from jsPsych data
-            var trial_index = jsPsych.data.get().count();
-            return '<br><p>' + (trial_index-7) +
-            '/36 回目の回答</p>';
-        },
-  stimulus:'<div><div id="p5-canvas"></div>'+
-  '<p>物体の動きに対して、'+
-  '<b>どのくらい生き物らしいと感じるか</b>'+
-  'を回答してください。</p>'+
-  '<div margin-bottom＝"1px";>'+
-  '・全く生き物らしく感じなければ 0<br>'+
-  '・本物の生き物の様に感じれば 100<br>'+
-  'としてスライダーを動かして回答してください。'+
-  '</div><br>'+
-  // 初期値50を設定'
-  '<div id="slider-value-display" style="text-align: center; '+
-  'margin-bottom: 10px;"><b>50</b></div>',
-  require_movement: true,
-  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
-    '|<br>とても<br>生き物らしく<br>感じる'],
-  button_label:'次へ',
-  
-  data: {
-    noise: jsPsych.timelineVariable('noise'),
-    experiment_data: 1,
-  },
-  on_load: function() {
-    new p5();
-
-    // スライダーの値を表示する要素
-    var displayElement = document.getElementById('slider-value-display');
-    
-    // スライダーの値を表示
-    var slider = document.querySelector('input[type="range"]');
-    slider.addEventListener('input', function() {
-      displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
+    block_trials.forEach(function(param) {
+        const label = `本番: セット${block_index_for_this_block} — ${display_counter} / ${total_in_block} 回目`;
+        timeline.push(createDualTrialBlock(
+            param.target_side,
+            param.noise_up,
+            param.noise_down,
+            'main',
+            label,
+            block_index_for_this_block
+        ));
+        display_counter++;
     });
 
-    // 初期値を表示
-    displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
-  },
-};
-//　本番実験セクションのフロー作成
-var trial_1 = {
-    timeline: [ans_1],
-    timeline_variables: [...Array(4).keys()].map((d) => {
-        return { noise: d };}),
-    repetitions: 9,
-    randomize_order: true,
-};
-timeline.push(trial_1);
+    if (block < NUM_BLOCKS - 1) {
+        timeline.push({
+            type: jsPsychHtmlButtonResponse,
+            stimulus: `
+                <div style="font-size: 34px;"><p><b>休憩です</b></p></div>
+                <p style="font-size: 20px;">${block_index_for_this_block} / ${NUM_BLOCKS} セット終了。<br>
+                準備ができたら次のセットを開始してください。</p>
+            `,
+            choices: ["次のセットを開始"]
+        });
+    }
+}
 
-//実験の 1/2 終了通達
-let take_a_break_1 = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:34px;">'+
-  '<p><b>一旦休憩です</b></p>'+
-   
-  '<p><div style="font-size:20px;"><br/>'+
-  '実験の半分が終了です、お疲れ様でした。<br>'+
-  'もう1度同じ実験をしていただきます。</p><br>'+
-   
-  '<p>お好きなタイミングでボタンを押して実験を開始してください</p>',
-  choices: ["最後の実験を開始"]
-};
-timeline.push(take_a_break_1);
-
-//　実験セクションPart2
-// jsPsychによるスライダー回答画面プラグイン
-var ans_2 = {
-  type: jsPsychHtmlSliderResponse,
-  prompt: function() {
-            // Get the current trial index from jsPsych data
-            var trial_index = jsPsych.data.get().count();
-            return '<br><p>' + (trial_index-44) +
-            '/36 回目の回答</p>';
-        },
-  stimulus:'<div><div id="p5-canvas"></div>'+
-  '<p>物体の動きに対して、'+
-  '<b>どのくらい生き物らしいと感じるか</b>'+
-  'を回答してください。</p>'+
-  '<div margin-bottom＝"1px";>'+
-  '・全く生き物らしく感じなければ 0<br>'+
-  '・本物の生き物の様に感じれば 100<br>'+
-  'としてスライダーを動かして回答してください。'+
-  '</div><br>'+
-  // 初期値50を設定'
-  '<div id="slider-value-display" style="text-align: center; '+
-  'margin-bottom: 10px;"><b>50</b></div>',
-  require_movement: true,
-  labels: ['|<br>まったく<br>生き物らしく<br>感じない', '|', '|', '|',
-    '|<br>とても<br>生き物らしく<br>感じる'],
-  button_label:'次へ',
-  
-  data: {
-    noise: jsPsych.timelineVariable('noise'),
-    experiment_data: 2,
-  },
-  on_load: function() {
-    new p5();
-
-    // スライダーの値を表示する要素
-    var displayElement = document.getElementById('slider-value-display');
-    
-    // スライダーの値を表示
-    var slider = document.querySelector('input[type="range"]');
-    slider.addEventListener('input', function() {
-      displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
-    });
-
-    // 初期値を表示
-    displayElement.innerHTML = '<b>' + slider.value +
-      '</b>';
-  },
-};
-//　本番実験セクションのフロー作成
-var trial_2 = {
-    timeline: [ans_2],
-    timeline_variables: [...Array(4).keys()].map((d) => {
-        return { noise: d };}),
-    repetitions: 9,
-    randomize_order: true,
-};
-timeline.push(trial_2);
-
-//実験終了通達
-let trial_is_finish = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:34px;">'+
-  '<p><b>お疲れ様です、実験は終わりです</b></p>'+
-   
-  '<p><div style="font-size:20px;"><br>'+
-  '「次へ」を押すと任意のアンケートが 2 つ、<br>'+
-  'その後にパスコードが表示されます。</p>',
-  choices: ["次へ"]
+// ---------------------------------------------------------
+// 実験終了 & アンケート
+// ---------------------------------------------------------
+const trial_is_finish = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 34px;">
+            <p><b>お疲れ様です、実験は終わりです</b></p>
+        </div>
+        <p style="font-size: 20px;">
+            「次へ」を押すと任意のアンケートが2つ、<br>
+            その後にパスコードが表示されます。
+        </p>
+    `,
+    choices: ["次へ"]
 };
 timeline.push(trial_is_finish);
 
-// アンケート
-var survey1 = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:34px;">'+
-  '<p>【任意】ご性別をお聞かせください</p><br><br>',
-  choices: ['女性', '男性', 'その他'],
-  data: {
-    survey_data: 1,
-  },
+const survey1 = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: '<div style="font-size:34px;"><p>【任意】ご性別をお聞かせください</p></div><br>',
+    choices: ['女性', '男性', 'その他'],
+    data: { survey_data: 1 },
 };
 timeline.push(survey1);
-var survey2 = {
-  type: jsPsychSurveyText,
-  questions: [
-    { prompt: '<div style="font-size:34px;">'+
-  '<p>【任意】ご年齢をお聞かせください</p>',
-  placeholder: '半角英数字でお答えください'}
-  ],
-  button_label: '次へ',
-  data: {
-    survey_data: 1,
-  },
+
+const survey2 = {
+    type: jsPsychSurveyText,
+    questions: [{
+        prompt: '<div style="font-size:34px;"><p>【任意】ご年齢をお聞かせください</p></div>',
+        placeholder: '半角英数字でお答えください'
+    }],
+    button_label: '次へ',
+    data: { survey_data: 1 },
 };
 timeline.push(survey2);
 
-// パスコード表示
-var end_experiment = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: '<div style="font-size:34px;">'+
-   '<p><b>パスコードをメモしてください</b></p><br>'+
-   
-   '<p><div style="font-size:20px;">'+
-   '参加ありがとうございました。<br>'+
-   'パスコードはこちらです</p>'+
-   '<span style="color: red; font-weight: bold; font-size:30px;">'+
-   '1340</span><br>'+
-   
-   '<br><p>パスコードは必ずメモをし、募集元のサイトに戻ってください。<br>'+
-   'パスコードを記録したら、下の終了ボタンをクリックして実験を終了してください。</p>'+
-   '<p>白紙のページが表示されたら、'+
-   'このサイトは閉じて問題ありません。</p>'+
-   
-   '<p>お疲れ様でした</p>',
-   choices: ["実験を終了する"]
+const end_experiment = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+        <div style="font-size: 34px;">
+            <p><b>パスコードをメモしてください</b></p>
+        </div>
+        <div style="font-size: 20px;">
+            <p>参加ありがとうございました。<br>パスコードはこちらです</p>
+            <span style="color: red; font-weight: bold; font-size: 30px;">1340</span><br>
+            <br>
+            <p>パスコードは必ずメモをし、募集元のサイトに戻ってください。<br>
+            パスコードを記録したら、下の終了ボタンをクリックして実験を終了してください。</p>
+            <p>白紙のページが表示されたら、このサイトは閉じて問題ありません。</p>
+            <p>お疲れ様でした</p>
+        </div>
+    `,
+    choices: ["実験を終了する"]
 };
 timeline.push(end_experiment);
 
-//フルスクリーン終了
-var exit_fullscreen = {
-  type: jsPsychFullscreen,
-  fullscreen_mode: false,
-  delay_after: 0
-}
+const exit_fullscreen = {
+    type: jsPsychFullscreen,
+    fullscreen_mode: false,
+    delay_after: 0
+};
 timeline.push(exit_fullscreen);
 
-//jspsychを実行
+// 実行
 jsPsych.run(timeline);
-
 </script>
 
 </html>
