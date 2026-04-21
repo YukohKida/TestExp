@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>画像トリミング・要件チェック</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 20px;
+      color: #111;
+      background: #f7f7f7;
+    }
+    h1 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+    .note {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+    .row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .panel {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 12px;
+      min-width: 320px;
+    }
+    .panel h2 {
+      font-size: 16px;
+      margin: 0 0 10px 0;
+    }
+    .status-ok {
+      color: #0a7a2f;
+      font-weight: 700;
+    }
+    .status-ng {
+      color: #b42318;
+      font-weight: 700;
+    }
+    .status-warn {
+      color: #9a6700;
+      font-weight: 700;
+    }
+    button, input[type="file"] {
+      margin: 8px 0;
+    }
+    ul {
+      margin: 8px 0 0 20px;
+      line-height: 1.7;
+    }
+    code {
+      background: #f0f0f0;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .small {
+      font-size: 13px;
+      color: #555;
+    }
+    canvas {
+      display: block;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>画像トリミング・要件チェック</h1>
+
+  <div class="note">
+    このツールは、アップロード画像を <strong>4:5</strong> に中央トリミングし、要件をチェックします。<br>
+    チェック対象：<br>
+    ・横：縦 = 4：5 でトリミング<br>
+    ・ファイル形式：jpg / jpeg<br>
+    ・サイズ：横 472 px × 縦 591 px 以上<br>
+    ・別ファイルとして保存する前提で出力<br>
+    <br>
+    <strong>注意:</strong> ブラウザの p5.js / Canvas では、JPEG の <strong>600 dpi メタデータ</strong> を厳密に埋め込んだり保証したりするのが難しいため、
+    この項目は <strong>自動で保証しません</strong>。必要なら保存後に別ツールで DPI を付与してください。
+  </div>
+
+  <div id="controls" class="panel">
+    <h2>操作</h2>
+    <div id="file-input"></div>
+    <button id="save-btn" disabled>トリミング画像をJPEGで保存</button>
+    <div class="small">保存画像は別ファイルとして出力されます。</div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>元画像プレビュー</h2>
+      <div id="original-holder"></div>
+    </div>
+    <div class="panel">
+      <h2>4:5 トリミング結果</h2>
+      <div id="cropped-holder"></div>
+    </div>
+    <div class="panel" style="flex: 1 1 380px;">
+      <h2>判定結果</h2>
+      <div id="report">画像をアップロードしてください。</div>
+    </div>
+  </div>
+
+  <script>
+    let fileInput;
+    let originalImg = null;
+    let originalFile = null;
+    let originalGraphics = null;
+    let croppedGraphics = null;
+
+    let cropInfo = null;
+
+    const TARGET_RATIO_W = 4;
+    const TARGET_RATIO_H = 5;
+    const MIN_W = 472;
+    const MIN_H = 591;
+
+    function setup() {
+      noCanvas();
+
+      fileInput = createFileInput(handleFile);
+      fileInput.parent('file-input');
+
+      const saveBtn = document.getElementById('save-btn');
+      saveBtn.addEventListener('click', saveCroppedJpeg);
+    }
+
+    function handleFile(file) {
+      resetViews();
+      originalFile = file;
+
+      if (!file || file.type !== 'image') {
+        document.getElementById('report').innerHTML = '<span class="status-ng">画像ファイルを選択してください。</span>';
+        return;
+      }
+
+      loadImage(file.data, (img) => {
+        originalImg = img;
+        processImage();
+      }, () => {
+        document.getElementById('report').innerHTML = '<span class="status-ng">画像の読み込みに失敗しました。</span>';
+      });
+    }
+
+    function processImage() {
+      if (!originalImg || !originalFile) return;
+
+      const ow = originalImg.width;
+      const oh = originalImg.height;
+      const targetRatio = TARGET_RATIO_W / TARGET_RATIO_H;
+      const currentRatio = ow / oh;
+
+      let sx, sy, sw, sh;
+
+      if (currentRatio > targetRatio) {
+        // 横長すぎるので左右を切る
+        sh = oh;
+        sw = oh * targetRatio;
+        sx = (ow - sw) / 2;
+        sy = 0;
+      } else {
+        // 縦長すぎるので上下を切る
+        sw = ow;
+        sh = ow / targetRatio;
+        sx = 0;
+        sy = (oh - sh) / 2;
+      }
+
+      cropInfo = {
+        sx: Math.round(sx),
+        sy: Math.round(sy),
+        sw: Math.round(sw),
+        sh: Math.round(sh)
+      };
+
+      originalGraphics = createGraphics(320, Math.round(320 * oh / ow));
+      originalGraphics.image(originalImg, 0, 0, originalGraphics.width, originalGraphics.height);
+      drawCropGuide(originalGraphics, ow, oh, cropInfo);
+
+      croppedGraphics = createGraphics(cropInfo.sw, cropInfo.sh);
+      croppedGraphics.image(
+        originalImg,
+        0, 0, cropInfo.sw, cropInfo.sh,
+        cropInfo.sx, cropInfo.sy, cropInfo.sw, cropInfo.sh
+      );
+
+      renderGraphicsToHolder(originalGraphics, 'original-holder');
+      renderGraphicsToHolderScaled(croppedGraphics, 'cropped-holder', 320);
+      renderReport();
+
+      document.getElementById('save-btn').disabled = false;
+    }
+
+    function drawCropGuide(g, ow, oh, c) {
+      const scaleX = g.width / ow;
+      const scaleY = g.height / oh;
+      g.push();
+      g.noFill();
+      g.stroke(255, 0, 0);
+      g.strokeWeight(2);
+      g.rect(c.sx * scaleX, c.sy * scaleY, c.sw * scaleX, c.sh * scaleY);
+      g.pop();
+    }
+
+    function renderGraphicsToHolder(g, holderId) {
+      const holder = document.getElementById(holderId);
+      holder.innerHTML = '';
+      const node = g.elt;
+      node.removeAttribute('style');
+      holder.appendChild(node);
+    }
+
+    function renderGraphicsToHolderScaled(g, holderId, maxW) {
+      const holder = document.getElementById(holderId);
+      holder.innerHTML = '';
+
+      const tempCanvas = document.createElement('canvas');
+      const ratio = Math.min(1, maxW / g.width);
+      tempCanvas.width = Math.round(g.width * ratio);
+      tempCanvas.height = Math.round(g.height * ratio);
+      tempCanvas.style.border = '1px solid #ccc';
+
+      const ctx = tempCanvas.getContext('2d');
+      ctx.drawImage(g.elt, 0, 0, tempCanvas.width, tempCanvas.height);
+
+      holder.appendChild(tempCanvas);
+    }
+
+    function renderReport() {
+      const ext = getExtension(originalFile.name);
+      const isJpg = ext === 'jpg' || ext === 'jpeg';
+      const meetsMinSize = cropInfo.sw >= MIN_W && cropInfo.sh >= MIN_H;
+      const isExact45 = cropInfo.sw * TARGET_RATIO_H === cropInfo.sh * TARGET_RATIO_W;
+
+      const items = [
+        {
+          label: '4:5 でトリミング',
+          ok: isExact45,
+          detail: `トリミング後サイズ: ${cropInfo.sw} × ${cropInfo.sh} px`
+        },
+        {
+          label: 'ファイル形式が jpg / jpeg',
+          ok: isJpg,
+          detail: `元ファイル名: ${escapeHtml(originalFile.name)}`
+        },
+        {
+          label: 'サイズが 472 × 591 px 以上',
+          ok: meetsMinSize,
+          detail: `必要最小サイズ: ${MIN_W} × ${MIN_H} px`
+        },
+        {
+          label: '600 dpi',
+          ok: false,
+          warn: true,
+          detail: 'p5.js / Canvas 単体では JPEG の DPI メタデータを厳密保証できません。保存後に外部ツールで確認・付与してください。'
+        },
+        {
+          label: '原稿に埋め込まず別ファイルで提出',
+          ok: false,
+          warn: true,
+          detail: 'これは提出手順の条件なので、自動判定はできません。保存された JPEG を別ファイルとして提出してください。'
+        }
+      ];
+
+      const overallOk = isExact45 && isJpg && meetsMinSize;
+
+      let html = '';
+      html += overallOk
+        ? '<div class="status-ok">自動判定で確認できる項目はクリアしています。</div>'
+        : '<div class="status-ng">自動判定で確認できる項目に未達があります。</div>';
+
+      html += '<ul>';
+      for (const item of items) {
+        let cls = 'status-ng';
+        let mark = 'NG';
+        if (item.warn) {
+          cls = 'status-warn';
+          mark = '要手動確認';
+        } else if (item.ok) {
+          cls = 'status-ok';
+          mark = 'OK';
+        }
+        html += `<li><span class="${cls}">${mark}</span> ${item.label}<br><span class="small">${item.detail}</span></li>`;
+      }
+      html += '</ul>';
+
+      if (!meetsMinSize) {
+        html += `<p class="small">補足: 元画像が小さい場合、このツールは不足をそのまま検出します。勝手な拡大はしていません。</p>`;
+      }
+
+      document.getElementById('report').innerHTML = html;
+    }
+
+    function saveCroppedJpeg() {
+      if (!croppedGraphics || !originalFile) return;
+
+      const baseName = originalFile.name.replace(/\.[^.]+$/, '');
+      save(croppedGraphics.elt, `${baseName}_cropped_4x5.jpg`);
+    }
+
+    function getExtension(filename) {
+      const parts = filename.toLowerCase().split('.');
+      return parts.length > 1 ? parts.pop() : '';
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function resetViews() {
+      document.getElementById('original-holder').innerHTML = '';
+      document.getElementById('cropped-holder').innerHTML = '';
+      document.getElementById('report').innerHTML = '読み込み中…';
+      document.getElementById('save-btn').disabled = true;
+      originalImg = null;
+      originalGraphics = null;
+      croppedGraphics = null;
+      cropInfo = null;
+    }
+  </script>
+</body>
+</html>
