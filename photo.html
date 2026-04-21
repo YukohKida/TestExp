@@ -92,6 +92,13 @@
   <div id="controls" class="panel">
     <h2>操作</h2>
     <div id="file-input"></div>
+
+    <div id="adjust-controls" style="display:none; margin-top: 10px;">
+      <div><label>横位置: <input id="offset-x" type="range" min="0" max="0" value="0" step="1"></label> <span id="offset-x-value">0</span></div>
+      <div><label>縦位置: <input id="offset-y" type="range" min="0" max="0" value="0" step="1"></label> <span id="offset-y-value">0</span></div>
+      <div class="small">4:5 の比率は固定したまま、トリミング位置だけ調整します。</div>
+    </div>
+
     <button id="save-btn" disabled>トリミング画像をJPEGで保存</button>
     <div class="small">保存画像は別ファイルとして出力されます。</div>
   </div>
@@ -119,6 +126,7 @@
     let croppedGraphics = null;
 
     let cropInfo = null;
+    let baseCrop = null;
 
     const TARGET_RATIO_W = 4;
     const TARGET_RATIO_H = 5;
@@ -133,6 +141,9 @@
 
       const saveBtn = document.getElementById('save-btn');
       saveBtn.addEventListener('click', saveCroppedJpeg);
+
+      document.getElementById('offset-x').addEventListener('input', updateCropFromSliders);
+      document.getElementById('offset-y').addEventListener('input', updateCropFromSliders);
     }
 
     function handleFile(file) {
@@ -163,29 +174,66 @@
       let sx, sy, sw, sh;
 
       if (currentRatio > targetRatio) {
-        // 横長すぎるので左右を切る
         sh = oh;
         sw = oh * targetRatio;
         sx = (ow - sw) / 2;
         sy = 0;
       } else {
-        // 縦長すぎるので上下を切る
         sw = ow;
         sh = ow / targetRatio;
         sx = 0;
         sy = (oh - sh) / 2;
       }
 
-      cropInfo = {
-        sx: Math.round(sx),
-        sy: Math.round(sy),
+      baseCrop = {
         sw: Math.round(sw),
         sh: Math.round(sh)
       };
 
-      originalGraphics = createGraphics(320, Math.round(320 * oh / ow));
+      setupSliders();
+      updateCropFromSliders();
+
+      document.getElementById('save-btn').disabled = false;
+    }
+
+    function setupSliders() {
+      const maxX = Math.max(0, originalImg.width - baseCrop.sw);
+      const maxY = Math.max(0, originalImg.height - baseCrop.sh);
+
+      const sliderX = document.getElementById('offset-x');
+      const sliderY = document.getElementById('offset-y');
+
+      sliderX.min = 0;
+      sliderX.max = maxX;
+      sliderX.value = Math.round(maxX / 2);
+
+      sliderY.min = 0;
+      sliderY.max = maxY;
+      sliderY.value = Math.round(maxY / 2);
+
+      document.getElementById('offset-x-value').textContent = sliderX.value;
+      document.getElementById('offset-y-value').textContent = sliderY.value;
+      document.getElementById('adjust-controls').style.display = 'block';
+    }
+
+    function updateCropFromSliders() {
+      if (!originalImg || !baseCrop) return;
+
+      const sx = Number(document.getElementById('offset-x').value);
+      const sy = Number(document.getElementById('offset-y').value);
+      document.getElementById('offset-x-value').textContent = sx;
+      document.getElementById('offset-y-value').textContent = sy;
+
+      cropInfo = {
+        sx,
+        sy,
+        sw: baseCrop.sw,
+        sh: baseCrop.sh
+      };
+
+      originalGraphics = createGraphics(320, Math.round(320 * originalImg.height / originalImg.width));
       originalGraphics.image(originalImg, 0, 0, originalGraphics.width, originalGraphics.height);
-      drawCropGuide(originalGraphics, ow, oh, cropInfo);
+      drawCropGuide(originalGraphics, originalImg.width, originalImg.height, cropInfo);
 
       croppedGraphics = createGraphics(cropInfo.sw, cropInfo.sh);
       croppedGraphics.image(
@@ -197,8 +245,6 @@
       renderGraphicsToHolder(originalGraphics, 'original-holder');
       renderGraphicsToHolderScaled(croppedGraphics, 'cropped-holder', 320);
       renderReport();
-
-      document.getElementById('save-btn').disabled = false;
     }
 
     function drawCropGuide(g, ow, oh, c) {
@@ -327,10 +373,12 @@
       document.getElementById('cropped-holder').innerHTML = '';
       document.getElementById('report').innerHTML = '読み込み中…';
       document.getElementById('save-btn').disabled = true;
+      document.getElementById('adjust-controls').style.display = 'none';
       originalImg = null;
       originalGraphics = null;
       croppedGraphics = null;
       cropInfo = null;
+      baseCrop = null;
     }
   </script>
 </body>
