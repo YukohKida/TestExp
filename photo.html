@@ -99,7 +99,7 @@
       <div class="small">4:5 の比率は固定したまま、トリミング位置だけ調整します。</div>
     </div>
 
-    <button id="save-btn" disabled>トリミング画像をJPEGで保存</button>
+    <button id="save-btn" disabled>トリミング画像をJPEGでダウンロード</button>
     <div class="small">保存画像は別ファイルとして出力されます。</div>
   </div>
 
@@ -351,7 +351,24 @@
       if (!croppedGraphics || !originalFile) return;
 
       const baseName = originalFile.name.replace(/\.[^.]+$/, '');
-      save(croppedGraphics.elt, `${baseName}_cropped_4x5.jpg`);
+      const filename = `${baseName}_cropped_4x5.jpg`;
+
+      croppedGraphics.elt.toBlob((blob) => {
+        if (!blob) {
+          alert('JPEG の生成に失敗しました。');
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 'image/jpeg', 0.95);
+    }_cropped_4x5.jpg`);
     }
 
     function getExtension(filename) {
